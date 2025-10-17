@@ -1,85 +1,73 @@
 var app = (function () {
-
-    class Point {
-        constructor(x, y) {
-            this.x = x;
-            this.y = y;
-        }
-    }
-
     var stompClient = null;
     var drawingId = null;
+    var canvas, ctx;
 
-    var addPointToCanvas = function (point) {
-        var canvas = document.getElementById("canvas");
-        var ctx = canvas.getContext("2d");
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, 2, 0, 2 * Math.PI);
-        ctx.fill();
-    };
+    var connect = function () {
+        drawingId = document.getElementById("drawingId").value;
+        if (!drawingId) {
+            alert("Por favor ingresa un número de dibujo.");
+            return;
+        }
 
-    var getMousePosition = function (evt) {
-        var canvas = document.getElementById("canvas");
-        var rect = canvas.getBoundingClientRect();
-        return {
-            x: evt.clientX - rect.left,
-            y: evt.clientY - rect.top
-        };
-    };
-
-    var connectAndSubscribe = function () {
-        console.info('Connecting to WS...');
         var socket = new SockJS('/stompendpoint');
         stompClient = Stomp.over(socket);
 
         stompClient.connect({}, function (frame) {
-            console.log('Connected: ' + frame);
-            console.log('Subscribed to /topic/newpoint.' + drawingId);
+            console.log('Conectado: ' + frame);
 
+            // Suscribirse a los tópicos dinámicos
             stompClient.subscribe('/topic/newpoint.' + drawingId, function (eventbody) {
                 var point = JSON.parse(eventbody.body);
-                addPointToCanvas(point);
+                drawPoint(point.x, point.y);
+            });
+
+            stompClient.subscribe('/topic/newpolygon.' + drawingId, function (eventbody) {
+                var polygon = JSON.parse(eventbody.body);
+                drawPolygon(polygon.points);
             });
         });
     };
 
-    return {
-        init: function () {
-            var can = document.getElementById("canvas");
+    var drawPoint = function (x, y) {
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.fillStyle = "red";
+        ctx.fill();
+    };
 
-            // Captura clics en el canvas
-            can.addEventListener("click", function (evt) {
-                if (stompClient && drawingId) {
-                    var point = getMousePosition(evt);
-                    app.publishPoint(point.x, point.y);
-                } else {
-                    alert("Primero debes conectarte a un dibujo.");
-                }
-            });
-        },
-
-        connect: function () {
-            var id = document.getElementById("drawingId").value;
-            if (!id) {
-                alert("Por favor ingresa un ID de dibujo antes de conectarte.");
-                return;
-            }
-            drawingId = id;
-            connectAndSubscribe();
-        },
-
-        publishPoint: function (px, py) {
-            var pt = new Point(px, py);
-            console.info("Publishing point at (" + pt.x + ", " + pt.y + ") to drawing " + drawingId);
-            addPointToCanvas(pt);
-            stompClient.send("/app/newpoint." + drawingId, {}, JSON.stringify(pt));
-        },
-
-        disconnect: function () {
-            if (stompClient !== null) {
-                stompClient.disconnect();
-            }
-            console.log("Disconnected");
+    var drawPolygon = function (points) {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y);
         }
+        ctx.closePath();
+        ctx.fillStyle = "rgba(0, 0, 255, 0.3)";
+        ctx.fill();
+    };
+
+    var publishPoint = function (px, py) {
+        if (stompClient && drawingId) {
+            let point = { x: px, y: py };
+            stompClient.send("/app/newpoint." + drawingId, {}, JSON.stringify(point));
+        }
+    };
+
+    var init = function () {
+        canvas = document.getElementById("canvas");
+        ctx = canvas.getContext("2d");
+
+        canvas.addEventListener("click", function (event) {
+            var rect = canvas.getBoundingClientRect();
+            var x = event.clientX - rect.left;
+            var y = event.clientY - rect.top;
+            publishPoint(x, y);
+        });
+    };
+
+    return {
+        connect: connect,
+        init: init
     };
 })();
